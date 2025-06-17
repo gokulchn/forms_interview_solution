@@ -1,124 +1,103 @@
-# Form3 Platform Interview
+# Form3 Platform Interview – Terraform Refactor & Enhancement
 
-Platform engineers at Form3 build highly available distributed systems using infrastructure as code. Our take home test is designed to evaluate real world activities that are involved with this role. We recognise that this may not be as mentally challenging and may take longer to implement than some algorithmic tests that are often seen in interview exercises. Our approach however helps ensure that you will be working with a team of engineers with the necessary practical skills for the role (as well as a diverse range of technical wizardry).
+## Overview
 
+This project is a refactored version of the Form3 platform interview take-home assignment. The original Terraform codebase has been modularized to support cleaner structure, reusability, and better environment management (dev, staging, production). Additionally, a new `staging` environment has been implemented, and Vault has been integrated with proper policy and user provisioning using the `userpass` auth method.
 
-## 🧪 Sample application
-The sample application consists of four services:
-
-```
-┌─────────────┐     ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│             │     │              │    │              │    │              │
-│   payment   │     │   account    │    │   gateway    │    │   frontend   │
-│             │     │              │    │              │    │              │
-└─────────┬───┘     └──────┬───────┘    └──────┬───────┘    └──────────────┘
-          │                │                   │
-          │                │                   │
-          │                ▼                   │
-          │         ┌──────────────┐           │
-          │         │              │           │
-          └────────►│    vault     │◄──────────┘
-                    │              │
-                    └──────────────┘
-```                    
-
-Three of those services connect to [vault](https://www.vaultproject.io/) to retrieve database credentials. The frontend container serves a static file.
-
-The project structure is as follows:
+## Architecture Diagram
 
 ```
-.
-├── docker-compose.yml
-├── form3.crt
-├── README.md
-├── run.sh
-├── Vagrantfile
-├── services
-│   ├── account
-│   ├── gateway
-│   └── payment
-└── tf
-    └── main.tf
-```
-1. Refactoring the Terraform code found in the [tf](./tf) directory is the primary focus of this test.
-1. `Vagrantfile`, `run.sh` and `docker-compose.yml` are used to bootstrap this sample application; refactoring these files is not part of the test, but these files may be modified if your solution requires it.
-1. `form3.crt` is used to ease sandboxed running of the submission by Form3 staff and can be ignored.
-1. The `services` code is used to simulate a microservices architecture that connects to vault to retrieve database credentials. The code and method of connecting to vault can be ignored for the purposes of this test.
+                 +------------------+
+                 |    Frontend      |
+                 +------------------+
+                          |
+             +------------+-------------+
+             |            |             |
+     +--------------+ +-----------+ +-------------+
+     |   Gateway    | |  Account  | |   Payment   |
+     +--------------+ +-----------+ +-------------+
 
-## Using an M1 Mac?
-If you are using an M1 Mac then you need to install some additional tools:
-- [Multipass](https://github.com/canonical/multipass/releases) install the latest release for your operating system
-- [Multipass provider for vagrant](https://github.com/Fred78290/vagrant-multipass)
-    - [Install the plugin](https://github.com/Fred78290/vagrant-multipass#plugin-installation)
-    - [Create the multipass vagrant box](https://github.com/Fred78290/vagrant-multipass#create-multipass-fake-box)
-
-## 👟 Running the sample application
-- Make sure you have installed the [vagrant prerequisites](https://learn.hashicorp.com/tutorials/vagrant/getting-started-index#prerequisites)
-- In a terminal execute `vagrant up`
-- Once the vagrant image has started you should see a successful terraform apply:
-```
-default: vault_audit.audit_dev: Creation complete after 0s [id=file]
-    default: vault_generic_endpoint.account_production: Creation complete after 0s [id=auth/userpass/users/account-production]
-    default: vault_generic_secret.gateway_development: Creation complete after 0s [id=secret/development/gateway]
-    default: vault_generic_endpoint.gateway_production: Creation complete after 0s [id=auth/userpass/users/gateway-production]
-    default: vault_generic_endpoint.payment_production: Creation complete after 0s [id=auth/userpass/users/payment-production]
-    default: vault_generic_endpoint.gateway_development: Creation complete after 0s [id=auth/userpass/users/gateway-development]
-    default: vault_generic_endpoint.account_development: Creation complete after 0s [id=auth/userpass/users/account-development]
-    default: vault_generic_endpoint.payment_development: Creation complete after 1s [id=auth/userpass/users/payment-development]
-    default: 
-    default: Apply complete! Resources: 30 added, 0 changed, 0 destroyed.
-    default: 
-    default: ~
-```
-*Verify the services are running*
-
-- `vagrant ssh`
-- `docker ps` should show all containers running:
-
-```
-CONTAINER ID   IMAGE                                COMMAND                  CREATED          STATUS          PORTS                                       NAMES
-6662939321b3   nginx:latest                         "/docker-entrypoint.…"   3 seconds ago    Up 2 seconds    0.0.0.0:4080->80/tcp                        frontend_development
-b7e1a54799b0   nginx:1.22.0-alpine                  "/docker-entrypoint.…"   5 seconds ago    Up 4 seconds    0.0.0.0:4081->80/tcp                        frontend_production
-4a636fcd2380   form3tech-oss/platformtest-payment   "/go/bin/payment"        16 seconds ago   Up 9 seconds                                                payment_development
-3f609757e28e   form3tech-oss/platformtest-account   "/go/bin/account"        16 seconds ago   Up 12 seconds                                               account_production
-cc7f27197275   form3tech-oss/platformtest-account   "/go/bin/account"        16 seconds ago   Up 10 seconds                                               account_development
-caffcaf61970   form3tech-oss/platformtest-payment   "/go/bin/payment"        16 seconds ago   Up 8 seconds                                                payment_production
-c4b7132104ff   form3tech-oss/platformtest-gateway   "/go/bin/gateway"        16 seconds ago   Up 13 seconds                                               gateway_development
-2766640654f3   form3tech-oss/platformtest-gateway   "/go/bin/gateway"        16 seconds ago   Up 11 seconds                                               gateway_production
-96e629f21d56   vault:1.8.3                          "docker-entrypoint.s…"   2 minutes ago    Up 2 minutes    0.0.0.0:8301->8200/tcp, :::8301->8200/tcp   vagrant-vault-production-1
-a7c0b089b10c   vault:1.8.3                          "docker-entrypoint.s…"   2 minutes ago    Up 2 minutes    0.0.0.0:8201->8200/tcp, :::8201->8200/tcp   vagrant-vault-development-1
+ Each connects to its env-specific Vault (dev/staging/prod)
+ to fetch database credentials using userpass auth.
 ```
 
-## ⚙️ Task
-Imagine the following scenario, your company is growing quickly 🚀 and increasing the number services being deployed and configured.
-It's been noticed that the code in `tf/main.tf` is not very easy to maintain 😢.
+## Project Structure
 
-We would like you to complete the following tasks:
+```
 
-- [ ] Improve the Terraform code to make it easier to add/update/remove services
-- [ ] Add a new environment called `staging` that runs each microservice
-- [ ] Add a README detailing: 
-  - [ ] Your design decisions, if you are new to Terraform let us know
-  - [ ] How your code would fit into a CI/CD pipeline
-  - [ ] Anything beyond the scope of this task that you would consider when running this code in a real production environment
+├── modules/
+│   ├── service/
+│   │   └── main.tf
+│   └── vault/
+│       └── main.tf
+├── services/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── README.md
+```
 
+## Design Decisions
 
-## 📝 Candidate instructions
-1. Create a private [GitHub](https://help.github.com/en/articles/create-a-repo) repository containing the content of this repository
-2. Complete the [Task](#task) :tada:
-3. [Invite](https://help.github.com/en/articles/inviting-collaborators-to-a-personal-repository) [@form3tech-interviewer-1](https://github.com/form3tech-interviewer-1) to your private repo
-4. Let us know you've completed the exercise using the link provided at the bottom of the email from our recruitment team
+- **Modularization**: Each service (`payment`, `gateway`, etc.) is abstracted into a module for simplicity.
+- **Dynamic Environments**: Support for `development`, `staging`, and `production` via variable files and workspace-based execution.
+- **Vault Integration**: Auth method `userpass` is enabled and preconfigured for each service with minimal access policies (`read` on required paths only).
 
+## CI/CD Integration Strategy
 
-## Submission Guidance
+The Terraform code is designed to integrate with standard CI/CD practices:
 
-### Shoulds
-- Use only plain Terraform in your solution, i.e. anything supported by the Terraform CLI installed by the `run.sh` script, but not external tooling or libraries that wrap or extend Terraform, such as Terragrunt or tfenv
-- Only modify files in the `tf/` directory, `run.sh`, and `docker-compose.yml`
-- Keep the current versions of the services running in `development` and `production` environments
-- Structure your code in a way that will segregate environments
-- 🚨 All environments (including staging) should be created when you run `vagrant up` and the apps should print `service started` and the secret data in their logs 🚨
-- Structure your code in a way that allows engineers to run different versions of services in different environments
+1. **Plan and Apply Jobs**:
+   - Run `terraform init`, `plan`, and `apply` using GitHub Actions or GitLab CI.
+   - Separate workflows for each environment (`dev`, `staging`, `prod`) based on branches or tags.
 
-### Should Nots
-- Do not use external tools that extend Terraform, such as Terragrunt.
+2. **Vault Secrets Preprovisioning**:
+   - Add CI steps to authenticate and enable `userpass` method in Vault before Terraform provisioning.
+
+3. **Validation & Linting**:
+   - Include `tflint`, `checkov`, and `terraform validate` to ensure compliance and security.
+
+## Production Considerations
+
+Beyond the scope of this test, in a production setting, the following would be essential:
+
+- **Remote State Backend**: Use a remote backend (e.g., Terraform Cloud, S3 with DynamoDB lock) instead of local state.
+- **State Locking & Versioning**: Ensure state consistency in multi-engineer environments.
+- **Secrets Handling**: Secure provisioning of secrets into Vault via automation (e.g., CI Vault injection, Boundary integration).
+- **Logging and Monitoring**: Include Terraform plan logging, Vault audit logs, and monitoring of service health.
+- **Container Hardening**: Add production-grade configurations (non-root, minimal base image, etc.).
+
+## How to Add/Update/Remove Services
+
+1. **To Add**:
+   - Create a new module call under each environment block.
+   - Add required Vault policy and user config for the new service.
+
+2. **To Update**:
+   - Modify the corresponding module's variables or template.
+   - Update Terraform code, then run `terraform plan` and `apply`.
+
+3. **To Remove**:
+   - Comment/remove module block.
+   - Run `terraform destroy -target=module.<env>.module.<service>`.
+
+## Prerequisites
+
+- Vagrant + Docker + Terraform installed.
+- Run `vagrant up` to bootstrap the environment.
+
+---
+
+**Note**: Ensure Vault containers are initialized and unsealed. You may need to enable the `userpass` method and apply ACL policies using the root token manually before Terraform apply.
+
+## Modular Structure
+Each microservice (payment, account, gateway, frontend) is independently deployed via modules. This ensures better reusability and isolation of logic.
+
+## Environment Isolation
+Development, staging, and production use separate Vault instances and Terraform configurations to simulate realistic multi-env infrastructure separation.
+
+## Service Discovery & Secrets Access
+Services authenticate using Vault's userpass method to retrieve credentials for their respective paths (secret/data/<env>/<service>).
+
+## Explicit Port Mapping
+Vault instances are bound to separate localhost ports (8201, 8301, 8401) to enable local multi-instance support without port conflict.
