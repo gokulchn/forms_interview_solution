@@ -1,35 +1,55 @@
-#!/usr/bin/env bash
-
+#!/bin/bash
 set -e
 
-echo Installing docker-compose
-os=$(uname -s | tr '[:upper:]' '[:lower:]')
-arch=$(uname -m)
-pro=$(dpkg --print-architecture)
-terraform_version="1.11.4"
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.1.1/docker-compose-${os}-${arch}" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+function wait_for_vault() {
+  local port=$1
+  until curl --silent http://localhost:${port}/v1/sys/health | grep '"initialized":true' > /dev/null; do
+    echo "⏳ Waiting for Vault at port ${port}..."
+    sleep 2
+  done
+}
 
-echo Installing terraform onto machine...
-mkdir -p "${HOME}/bin"
-sudo apt-get update && sudo apt-get install -y unzip jq
-pushd "${HOME}/bin"
+function enable_userpass() {
+  local port=$1
+  if curl --silent http://localhost:${port}/v1/sys/auth | jq -e '."userpass/"' > /dev/null; then
+    echo "✅ userpass already enabled on port ${port}"
+  else
+    echo "🔐 Enabling userpass on Vault at port ${port}..."
+    curl --silent --request POST --data '{"type": "userpass"}' http://localhost:${port}/v1/sys/auth/userpass
+  fi
+}
 
-wget -q "https://releases.hashicorp.com/terraform/${terraform_version}/terraform_${terraform_version}_linux_${pro}.zip"
-unzip -q -o "terraform_${terraform_version}_linux_${pro}.zip"
-. "${HOME}/.profile"
-popd
-pushd /vagrant
-docker build ./services/account -t form3tech-oss/platformtest-account
-docker build ./services/gateway -t form3tech-oss/platformtest-gateway
-docker build ./services/payment -t form3tech-oss/platformtest-payment
+# Install Docker Compose (v2+ CLI plugin style)
+echo "🧩 Installing Docker Compose plugin..."
+mkdir -p ~/.docker/cli-plugins
+echo "🧩 Installing Docker Compose plugin..."
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x ~/.docker/cli-plugins/docker-compose
+
+echo "🔧 Starting Docker Compose"
 docker-compose up -d
-popd
-echo Applying terraform script
-pushd /vagrant/tf
-terraform init -upgrade
+
+# Wait for Vault instances to be ready
+wait_for_vault 8201
+wait_for_vault 8301
+wait_for_vault 8401
+
+# Enable userpass on each Vault
+enable_userpass 8201
+enable_userpass 8301
+enable_userpass 8401
+
+# Run Terraform
+cd /vagrant/tf
+terraform init
+
+echo "🔐 Enabling userpass auth on all Vault instances..."
+curl --silent --request POST http://localhost:8201/v1/sys/auth/userpass -d '{"type":"userpass"}' || true
+curl --silent --request POST http://localhost:8301/v1/sys/auth/userpass -d '{"type":"userpass"}' || true
+curl --silent --request POST http://localhost:8401/v1/sys/auth/userpass -d '{"type":"userpass"}' || true
 terraform apply -auto-approve
-popd
 
 
 echo "🔐 Enabling userpass auth method on all Vault instances..."
