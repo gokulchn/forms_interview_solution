@@ -39,9 +39,59 @@ This project is a refactored version of the Form3 platform interview take-home a
 
 ## Design Decisions
 
-- **Modularization**: Each service (`payment`, `gateway`, etc.) is abstracted into a module for simplicity.
-- **Dynamic Environments**: Support for `development`, `staging`, and `production` via variable files and workspace-based execution.
-- **Vault Integration**: Auth method `userpass` is enabled and preconfigured for each service with minimal access policies (`read` on required paths only).
+1. Modularization
+Each microservice (e.g., payment, gateway, frontend, account) is implemented as a reusable module.
+
+Allows isolated development, testing, and scalability of services.
+
+Promotes DRY principles by reusing logic across environments with minimal duplication.
+
+✅ 2. Environment Isolation
+
+Each environment runs on separate Vault ports (8201, 8301, 8401) to prevent collision.
+
+✅ 3. Vault Integration (userpass + policies)
+userpass auth method is enabled per Vault instance for simplicity in local dev.
+
+Fine-grained policies created for each service, restricting access to only necessary paths (e.g., secret/data/staging/payment).
+
+Secrets access is environment-specific, limiting blast radius.
+
+✅ 4. Dynamic Service Definition
+
+Easily add/remove services without modifying module logic.
+
+✅ 5. Consistent Naming Conventions
+Container and Vault paths follow consistent <env>_<service> or secret/data/<env>/<service> patterns.
+
+Enables easy debugging, logging, and traceability.
+
+✅ 6. Vagrant + Docker Compose Integration
+Local sandboxing using Vagrant simplifies onboarding.
+
+Vault is bootstrapped inside Docker containers to simulate production Vault setups with minimal dependencies.
+
+✅ 7. Least Privilege Principles
+Vault policies are scoped strictly to the service and its environment.
+
+No broad wildcard paths are used to enforce Zero Trust principles.
+
+✅ 8. Local Development Friendliness
+Devs can run vagrant up to simulate the entire infrastructure locally.
+
+Fast feedback loop for Vault secret access and service testing.
+
+✅ 9. Clear Separation of Concerns
+Provider configuration, environment variables, and reusable logic are clearly split across files.
+
+Terraform code can be extended to cloud platforms by replacing the Docker provider.
+
+✅ 10. Readiness for Production Extensions
+TLS not enabled yet, but infrastructure prepared to plug in with Vault’s TLS setup.
+
+Can integrate AppRole or OIDC for secure and scalable authentication.
+
+Remote state backend like GCS or S3 can be easily introduced in backend.tf.
 
 ## CI/CD Integration Strategy
 
